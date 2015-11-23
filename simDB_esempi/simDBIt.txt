@@ -1,0 +1,732 @@
+Un sistema per la gestione di dati di input ed output di una generica
+applicazione.
+
+* Requisiti
+
+Il sistema è pensato per gestire i dati di input ed output richiesti e
+prodotti da varie applicazioni software (tipicamente, ma non solo,
+software per effettuare simulazioni).
+Definiamo Data Set (DS) l'insieme dei dati richiesti per eseguire
+un'applicazione (input) ed i dati prodotti dall'applicazione (output).
+Un data set è definito da:
+
+        - Set Descriptor (SD), una sequenza di campi che descrivono il run.
+          <F1, F2,... Fn>.
+        - Una raccolta di dati eterogenei (DI) di diverso tipo
+          (stringhe di caratteri, interi, etc.) e file che possono
+          avere dimensione arbitraria.
+
+Ogni Data Set è un'instanza di un Data Set Specifier (DSS).
+
+Un DSS specifica:
+
+        - Il nome ed il tipo (stringa, intero, etc.) dei vari campi di un SD:
+
+                F1.name F1.type
+                F2.name F2.type
+                ...
+                Fk.name Fk.type
+
+          dove:
+
+                type = string | date | int | float
+
+          Il numero massimo di campi in un SD è 512.
+          Ad ogni SD viene aggiunto un campo intero, chiamato Sequence
+          Number (SN), usato per differenziare i DS.
+          Uno stesso SN non può essere assegnato due volte all'interno
+          dello stesso DSS
+
+        - Il nome di ogni Data Item, il tipo ed il gruppo di appartenenza
+          (input o output):
+
+                DI1.name DI1.type DI1.tag DI1.father_name
+                DI2.name DI2.type DI2.tag DI2.father_name
+                ...
+                DIn.name DIn.type DIn.tag DIn.father_name
+
+          dove:
+
+                tag = N | U (come Necessary e Unnecessary)
+                father_name = name | 'Input' | 'Output'
+                type = file
+
+          Il numero massimo di Data Items is 512.
+
+        - I Data Items sono organizzati gerarchicamente in due Dependency Trees (DT):
+
+                - Input Tree (IT): la radice rappresenta il run e le foglie
+                  i dati di input richiesti per l'esecuzione del run.
+
+                - Output Tree (OT): la radice rappresenta l'output del
+                  run e le foglie i singoli file di output che possono
+                  essere prodotti.
+
+          Un run può essere eseguito solo se sono presenti tutti gli
+          item di tipo N (Necessary) nell'albero di input.
+
+* Salvataggio dei dati
+
+I Data Set possono essere salvati all'interno di una struttura gerarchica che
+riproduce l'albero di dipendenza:
+
+        rootDir/
+           |
+           |--DSS1
+           |   |
+           |   |--SD-index
+           |   |
+           |   |--DataSet1/
+           |   |     |
+           |   |     |--Descr
+           |   |     |
+           .   |     |--Input/
+           .   |     |   `-<input_tree>
+           .   |     |
+               |     `--Output/
+               |         `-<output_tree>
+               |
+               |--DataSet2/
+
+Il file SD-index contiene una entry per ogni DS e costituisce l'indice del DSS.
+Ogni entry contiene almeno il tempo di creazione del DS ed il nome 
+della directory che contiene il DS. Il file SD-index può
+essere usato come indice per eseguire ricerche (vedi successivamente).
+
+Il file "Descr" contiene la Set Description per il Data Set.  I Data Items sono
+codificati con una directory ed un file al suo interno.  Il nome della directory
+codifica il nome dell'item ed un'etichetta.  Ad un item (name, [N|U])
+corrisponde una directory con nome [N|U]_name. Ad esempio all'item:
+
+            mycodeinp N
+
+corrisponde una directory
+
+            N_mycodeinp
+
+I Data Item sono salvati in un file nella directory che rappresenta l'item.  I
+file sono salvati esattamente come sono ricevuti (vedi in seguito) mentre gli
+item di tipo Basic Data sono salvati in file che contengono la rappresentazione
+del dato nella forma "stringa di caratteri"
+
+* Operazioni
+
+Il sistema deve essere utilizzabile come servizio remoto accessibile
+via rete rispettando le direttive di un protocollo stile HTTP.
+Il server risponde alle richieste sulla porta TCP 4444.
+Devono essere supportate le seguenti operazioni:
+
+- Creazione di un Data Set Specifier (DSS)
+
+        Deve essere possibile aggiungere un nuovo Data Set Specifier
+        al sistema così che Data Sets appartenenti ad applicazioni
+        diverse possono essere gestiti allo stesso tempo.
+
+- Inserimento/Cancellazione di un Data Set
+
+        Le operazioni fondamentali del sistema sono la creazione 
+        e cancellazione di Data Set tramite un programma
+        client oppure direttamente dalle applicazioni attraverso un
+        insieme di primitive (Application Programming Interface).
+        In sostanza queste operazioni creano  o cancellano
+        le directory corrispondenti ai Data Set.
+        Quando viene aggiunto un nuovo Data Set, viene eseguito un
+        controllo rispetto al DSS per vedere se tutti i file marcati
+        come N sono presenti. Se manca uno o più file marcati come N,
+        il DS non viene aggiunto e viene ritornato un messaggio di
+        errore.
+        Inserimento e cancellazione sono eseguiti
+        utilizzando un meccanismo di lock per mantenere la
+        consistenza.
+        Non è possibile caricare file direttamente.
+        Quando viene aggiunto o cancellato un DS,
+        il file SD-index viene cambiato di conseguenza (sempre sotto il
+        controllo di un lock).
+
+- Ricerca di Data Set
+
+        Questa operazione permette di cercare tra i Data Set quelli
+        che hanno valori dei campi di descrizione che coincidono con
+        quelli dati in input.
+        L'operazione può facilmente essere eseguita analizzando il
+        file SD-index e ritorna le seguenti informazioni:
+
+        <SeqNum, F1, F2, ..., Fn>
+
+- Recupero di un Data Set
+
+        Questa operazione è utilizzata per scaricare i Data Item
+        appartenenti ad un Data Set specificato dal suo Sequence
+        Number.
+        E' possibile scaricare solo i file di input, solo i file di
+        output o entrambi.
+
+- API
+
+        Il sistema può essere utilizzato per mezzo di un'API da
+        applicazioni esterne (opzionale) .
+
+* Protocollo
+
+Ogni comunicazione tra client e server avviene attraverso una
+connessione di rete. Client e server interagiscono per mezzo di un
+protocollo di tipo richiesta-risposta (tipo HTTP).
+Tutti i messaggi sono composti esclusivamente di caratteri ASCII.
+Il contenuto dei file è codificato in formato "base64".
+Il carattere usato per il "newline" è il singolo ottetto '\n'.
+I valori delle stringhe sono specificati all'interno delle virgolette
+singole (Esempio: 'xxx').
+
+
+- Creazione di un DSS
+
+        Questa operazione può essere eseguita solo direttamente sul
+        server creando manualmente l'appropriato file di configurazione.
+
+- Inserimento di un DS
+
+        La struttura richiesta-risposta ed i codici di ritorno per
+        questo comando sono:
+
+        Client                                          Server
+
+        INSERT
+        DSS name
+        SD n
+        F1.name F1.value
+        F2.name F2.value
+        ...
+        Fn.name Fn.value
+        DIFILES l
+        DIf1.name filesize1
+        DIf2.name filesize2
+        ...
+        DIfl.name filesizel
+                --------------------------------------->
+
+                                                        0 OK
+                                                        2 Incomplete set
+                                                        3 No such specifier
+                                                        4 Too much data
+                                                        6 Wrong type
+                                                        7 Unknown name
+                                                        8 Unknown field
+                                                        99 Generic error
+                <---------------------------------------
+        (if OK has been received)
+        DIf1.name nbytes1
+        <data_1>
+                ---------------------------------------->
+
+                                                        0 OK
+                                                        99 Generic error
+                <---------------------------------------
+        (if OK has been received)
+        DIf2.name nbytes2
+        <data_2>
+                ---------------------------------------->
+
+                                                        0 OK
+                                                        99 Generic error
+                <---------------------------------------
+        ...
+        (if OK has been received)
+        DIfl.name nbytesl
+        <data_l>
+                ---------------------------------------->
+
+                                                        0 OK <Seq. Number>
+                                                        99 Generic error
+                <---------------------------------------
+
+
+        I valori DIx.value per i Data Item di tipo 'file' sono i nomi dei
+        file corrispondenti. In caso di errore,  il server chiude la connessione
+        eliminando tutti i dati già ricevuti per il DS in fase di caricamento.
+        I data sono effettivamente salvati in maniera permanente solo
+        dopo che l'ultimo Data Item è stato ricevuto in maniera
+        corretta. L'ultimo codice di ritorno contiene il SN del nuovo
+        DS inserito.
+        I valori 'filesizeX' nella sezione DIFILES del primo messaggio di
+        invio si riferiscono alla dimensione originale del file (prima
+        della codifica in base64) mentre i corrispondenti valori
+        'nbytesX' nei successivi messaggi rappresentano il numero di
+        ottetti in base64 che codificano i contenuti del file.
+
+
+- Cancellazione di un DS
+
+        La struttura richiesta-risposta ed i codici di ritorno per
+        questo comando sono:
+
+        Client                                          Server
+
+        REMOVE SeqNum
+        DSS name
+                --------------------------------------->
+                                                        0 OK
+                                                        3 No such specifier
+                                                        5 No such set
+                                                        99 Generic error
+                <---------------------------------------
+
+- Accesso ad un DS
+
+        Il comando ritorna tutti i dati relativi al DS specificato.
+        La struttura richiesta-risposta ed i codici di ritorno sono:
+
+        Client                                          Server
+
+        GET SeqNum
+        DSS name
+                --------------------------------------->
+                                                        3 No such specifier
+                                                        5 No such set
+                                                        99 Generic error
+                <---------------------------------------
+
+        Se il DS richiesto è presente, il server replica inviando i dati:
+
+                                                        0 OK
+                                                        SD n
+                                                        F1.name F1.value
+                                                        F2.name F2.value
+                                                        ...
+                                                        Fn.name Fn.value
+                                                        DI m
+                                                        DI1.name DI1.value
+                                                        DI2.name DI2.value
+                                                        ...
+                                                        DIm.name DIn.value
+                                                        DIFILES l
+                                                        DIf1.name nbytes1
+                                                        <data_1>
+                                                        DIf2.name nbytes2
+                                                        <data_2>
+                                                        ...
+                                                        DIf2.name nbytesl
+                                                        <data_l>
+                <---------------------------------------
+
+       I file etichettati con U (unneeded) che non sono presenti nel
+       DS non sono presenti nella sezione DIFILES della risposta.
+
+- Ricerca di un DS
+
+        Il comando ritorna tutti le informazioni relative ai DS specificati.
+        La struttura richiesta-risposta ed i codici di ritorno sono:
+
+        Client                                          Server
+
+        SEARCH
+        DSS name
+        SD l
+        F1.name F1.value
+        ...
+        Fl.name Fl.value
+                --------------------------------------->
+                                                        3 No such specifier
+                                                        8 Unknown field
+                                                        99 Generic error
+                <---------------------------------------
+
+        Se il DSS è presente, il server risponde inviando le
+        informazioni per ogni SD che soddisfa i criteri di ricerca.
+
+                                                        0 OK
+                                                        FOUND k
+                                                        SD n      # 1st
+                                                        F1.name F1.value
+                                                        F2.name F2.value
+                                                        ...
+                                                        Fn.name Fn.value
+                                                        ...
+                                                        SD n      # k-th
+                                                        F1.name F1.value
+                                                        F2.name F2.value
+                                                        ...
+                                                        Fn.name Fn.value
+                <---------------------------------------
+
+        Il numero l deve essere minore o uguale al numero di campi nel
+        SD del DSS specificato.
+        Se non vengono specificati valori per la ricerca (l=0),
+        vengono ritornate le informazioni per tutti i DS presenti nel DSS.
+
+- Lista dei Data Set Specifier
+
+        Questo comando è usato per ottenere la lista dei DSS
+        attualmente sotto il controllo del server.
+        La struttura richiesta-risposta ed i codici di ritorno sono:
+
+        Client                                          Server
+
+        SPECLIST
+                --------------------------------------->
+                                                        99 Generic error
+                <---------------------------------------
+
+        Se non ci sono errori, il server risponde:
+
+                                                        0 OK
+                                                        FOUND n
+                                                        SSS1.name
+                                                        ...
+                                                        SSSn.name
+                <---------------------------------------
+
+Riassunto dei codici di ritorno del server:
+
+        Success code:
+                0 OK
+
+        Error codes:
+                1 Wrong authentication
+                2 Incomplete set
+                3 No such specifier
+                4 Too much data
+                5 No such set
+                6 Wrong type
+                7 Unknown name
+                8 Unknown field
+
+               99 Generic error
+
+* Flusso dei comandi lato server
+
+        Consideriamo un server multi-thread/processo in cui viene
+        iniziato un flusso di esecuzione (thread o processo) per ogni
+        richiesta da parte di un client.
+        Read e Write lock possono essere acquisiti per i seguenti "oggetti":
+
+        - SD-index
+        - singolo DS (uno per SS)
+
+        Per prevenire deadlocks, ogni flusso di esecuzione deve
+        rispettare le seguenti regole:
+
+        - solo un singolo rwlock per DS può essere tenuto da un flusso di
+        - esecuzioni in ogni momento;
+        - all'interno di sezioni critiche per i DSs, non si può tenere
+          un rwlock per il file SD-index
+
+        Casi di annidamento di sezioni critiche:
+
+          +-            +-         +-             +-
+          |SD-index     |DSi       |SD-index      |SD-index
+          |             |          |  +-          |  +-
+          |             |          |  | DSi       |  | DSi
+          |             |          |  +-          +- |
+          +-            +-         +-                +-
+
+- Inserimento di un DS
+
+        Client                                          Server
+
+        INSERT
+
+        DSS name
+        SD n
+        F1.name F1.value
+        F2.name F2.value
+        ...
+        Fn.name Fn.value
+        DI m
+        DI1.name DI1.value
+        DI2.name DI2.value
+        ...
+        DIm.name DIn.value
+        DIFILES l
+        DIf1.name filesize1
+        DIf2.name filesize2
+        ...
+        DIfl.name filesizel
+                --------------------------------------------------->+
+                                                                    |
+                                                              ______|_______
+                                     3 No such specifier     /              \
+                <--------------------------------------- no /DSS name exists \
+                                                            \                /
+                                                             \______________/
+                                                                    |
+                                                                    | yes
+                                                              ______|_______
+                                        2 Incomplete set     /all SD fields \
+                <--------------------------------------- no /have a value and\
+                                                            \ all 'N' DIs are/
+                                                             \__specified___/
+                                                                    |
+                                                                    |
+                                                             _______|________
+                                                            |                |
+                                                            |create a TEMP & |
+                                                            |  UNIQUE item I |
+                                                            |________________|
+                                                                    |
+                                                                    |
+                                                             _______|________
+                                                            |generate unique |
+                                                            | SeqNum for DSS |
+                                                            |  (LOCK/UNLOCK  |
+                                                            |____counter)____|
+                                                                    |
+                                                    0 OK            |
+                <---------------------------------------------------+
+        DIf1.name nbytes1
+        <data_1>
+                --------------------------------------------------->+
+                                                             _______|________
+                                                            |                |
+                                                            | add DIf1 to I  |
+                                                            |                |
+                                                            |________________|
+                                                                    |
+                                                                    |
+                                                              ______|_______
+                                   4 ERROR Too much data     /              \
+                <--------------------------------------- no /  enough space  \
+                                                            \                /
+                                                             \______________/
+                                                                    |
+                                                    0 OK            | yes
+                <---------------------------------------------------+
+       .....
+        DIfl.name nbytesl
+        <data_l>
+                --------------------------------------------------->+
+                                                             _______|________
+                                                            |                |
+                                                            | add DIfl to I  |
+                                                            |                |
+                                                            |________________|
+                                                                    |
+                                                                    |
+                                                              ______|_______
+                                   4 ERROR Too much data     /              \
+                <--------------------------------------- no /  enough space  \
+                                                            \                /
+                                                             \______________/
+                                                                    |
+                                                                    | yes
+                                                             _______|________
+                                                            |  add item I to |
+                                                            | storage system |
+                                                            | (use SeqNum to |
+                                                            |avoid conflicts)|
+                                                                    |
+                                                                    |
+                                                             _______|________
+                                                            |                |
+                                                            |     WLOCK      |
+                                                            |    SD-index    |
+                                                            |________________|
+                                                                    |
+                                                                    |
+                                                             _______|________
+                                                            |                |
+                                                            |  add new SD to |
+                                                            |    SD-index    |
+                                                            |________________|
+                                                                    |
+                                                                    |
+                                                             _______|________
+                                                            |                |
+                                                            |     UNLOCK     |
+                                                            |    SD-index    |
+                                                            |________________|
+                                                                    |
+                                           0 OK <Seq. Number>       |
+                <---------------------------------------------------+
+
+
+- Cancellazione di un DS
+
+        Client                                          Server
+
+        REMOVE SeqNum
+        DSS name
+                --------------------------------------------------->+
+                                                                    |
+                                                              ______|_______
+                                     3 No such specifier     /              \
+                <--------------------------------------- no /DSS name exists \
+                                                            \                /
+                                                             \______________/
+                                                                    |
+                                                                    | yes
+                                                             _______|________
+                                                            |                |
+                                                            | WLOCK SD-index |
+                                                            |                |
+                                                            |________________|
+                                                                    |
+                                    ________________                |
+                                   |                |         ______|_______
+                   3 No such set   |     UNLOCK     |        /              \
+                <------------------|    SD-index    |<-- no /   SeqNum in    \
+                                   |________________|       \   SD-index     /
+                                                             \______________/
+                                                                    |
+                                                                    | yes
+                                                             _______|________
+                                                            |                |
+                                                            |   remove SD    |
+                                                            |     entry      |
+                                                            |________________|
+                                                                    |
+                                                                    |
+                                                             _______|________
+                                                            |                |
+                                                            |     UNLOCK     |
+                                                            |    SD-index    |
+                                                            |________________|
+                                      Dopo questo punto, nuove ops  |
+                                      sul DS ritorano 'No such set' |
+                                                             _______|________
+                                                            |                |
+                                      prende il lock        |     WLOCK      |
+                                      per assicurarsi che   |    SS SeqNum   |
+                                      nessuno flusso di     |________________|
+                                      esecuzione (thread o          |
+                                      processo) lavori sul          |
+                                      DSS                           |
+                                                                    |
+                                                             _______|________
+                                                            |                |
+                                                            |    remove SS   |
+                                                            |(also del mutex)|
+                                                            |________________|
+                                                                    |
+                                                      0 OK          |
+                <---------------------------------------------------+
+
+- Accesso ad un DS
+
+        Client                                          Server
+
+        GET SeqNum
+        DSS name
+                --------------------------------------------------->+
+                                                                    |
+                                                              ______|_______
+                                     3 No such specifier     /              \
+                <--------------------------------------- no /SSS name exists \
+                                                            \                /
+                                                             \______________/
+                                                                    |
+                                                                    | yes
+                                                             _______|________
+                                                            |                |
+                                                            | RLOCK SD-index |
+                                                            |                |
+                                                            |________________|
+                                                                    |
+                                                                    |
+                                  ________________            ______|_______
+                  3 No such set  |                |          /              \
+                <----------------|     RLOCK      |----- no /   SeqNum in    \
+                                 |    DS SeqNum   |         \   SD-index     /
+                                 |________________|          \______________/
+                                                                    |
+                                                                    |
+                                                             _______|________
+                                                            |                |
+                                                            |     RLOCK      |
+                                                            |   DS SeqNum    |
+                                                            |________________|
+                                                                    |
+                                                                    |
+                                                             _______|________
+                                                            |                |
+                                                            | UNLOCK SD-index|
+                                                            |                |
+                                                            |________________|
+                                                                    |
+                                                                    | yes
+                                                0 OK                |
+                                                SD n                |
+                                                F1.name F1.value    |
+                                                F2.name F2.value    |
+                                                ...                 |
+                                                Fn.name Fn.value    |
+                                                DI m                |
+                                                DI1.name DI1.value  |
+                                                DI2.name DI2.value  |
+                                                ...                 |
+                                                DIm.name DIn.value  |
+                                                DIFILES l           |
+                                                DIf1.name nbytes1   |
+                                                <data_1>            |
+                                                DIf2.name nbytes2   |
+                                                <data_2>            |
+                                                ...                 |
+                                                DIf2.name nbytesl   |
+                                                <data_l>            |
+                <---------------------------------------------------+
+                                                             _______|________
+                                                            |                |
+                                                            |     UNLOCK     |
+                                                            |    DS SeqNum   |
+                                                            |________________|
+- Ricerca di un DS
+
+        La struttura richiesta-risposta per questo comando è:
+
+        Client                                          Server
+
+        SEARCH
+        DSS name
+        SD l
+        F1.name F1.value
+        ...
+        Fl.name Fl.value
+                --------------------------------------------------->+
+                                                                    |
+                                                              ______|_______
+                                     3 No such specifier     /              \
+                <--------------------------------------- no /SSS name exists \
+                                                            \                /
+                                                             \______________/
+                                                                    |
+                                                                    | yes
+                                                              ______|_______
+                                         8 Unknown field     /              \
+                <--------------------------------------- no /F1.name..Fl.name\
+                                                            \  in SD of DSS  /
+                                                             \______________/
+                                                                    |
+                                                                    | yes
+                                                             _______|________
+                                                            |                |
+                                                            | RLOCK SD-index |
+                                                            |                |
+                                                            |________________|
+                                                                    |
+                                                                    |
+                                                             _______|________
+                                                            |                |
+                                                            | find matching  |
+                                                            |      SDs       |
+                                                            |________________|
+                                                                    |
+                                                                    |
+                                                             _______|________
+                                                            |                |
+                                                            | UNLOCK SD-index|
+                                                            |                |
+                                                            |________________|
+                                                                    |
+                                                  0 OK              |
+                                                  FOUND k           |
+                                                  SD n      # 1st   |
+                                                  F1.name F1.value  |
+                                                  F2.name F2.value  |
+                                                  ...               |
+                                                  Fn.name Fn.value  |
+                                                  ...               |
+                                                  SD n      # k-th  |
+                                                  F1.name F1.value  |
+                                                  F2.name F2.value  |
+                                                  ...               |
+                                                  Fn.name Fn.value  |
+                <---------------------------------------------------+

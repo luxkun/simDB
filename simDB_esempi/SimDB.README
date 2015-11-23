@@ -1,0 +1,16 @@
+Insert:
+	sclient -c "INSERT muphy SD 5 paziente pippo data 11/2/2012 pressione 0.5 anni 35 descrizione testprogetto DIFILES 6 muphy_inp muphy.inp atom atom.inp bgkflag bgkflag.dat mpiinfo mpi.inp CONF CONF.xyz emol emol.dat"
+
+Search:
+
+	sclient -c "SEARCH muphy"
+
+ritorna 
+	----SeqNum---- ---paziente--- -----data----- --pressione--- -----anni----- -descrizione--
+             1            pippo        11/2/2012         0.5             35        testprogetto 
+
+Get:
+	sclient.py -c "GET muphy 1"
+
+ritorna tutti i file inseriti per il DS con SeqNum 1.
+	
